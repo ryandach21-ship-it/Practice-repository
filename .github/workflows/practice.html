@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Double Input and Export to Excel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h2>Double a Number and Save to Excel</h2>
+
+  <label for="inputNumber">Enter a number:</label>
+  <input type="number" id="inputNumber" />
+  <button onclick="processInput()">Double & Add to Excel</button>
+  <br><br>
+
+  <label for="outputNumber">Doubled value:</label>
+  <input type="text" id="outputNumber" readonly />
+  <br><br>
+
+  <button onclick="downloadExcel()">Download Excel File</button>
+
+  <script>
+    const data = [['Input', 'Doubled']]; // Header row
+
+    function processInput() {
+      const input = parseFloat(document.getElementById('inputNumber').value);
+      if (isNaN(input)) {
+        alert('Please enter a valid number.');
+        return;
+      }
+
+      const doubled = input * 2;
+      document.getElementById('outputNumber').value = doubled;
+
+      data.push([input, doubled]);
+    }
+
+    function downloadExcel() {
+      const worksheet = XLSX.utils.aoa_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
+      XLSX.writeFile(workbook, 'results.xlsx');
+    }
+  </script>
+</body>
+</html>
