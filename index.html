@@ -1,115 +1,116 @@
+
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Drag Calculator (Pyodide)</title>
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.1/full/pyodide.js"></script>
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 20px; max-width: 720px; }
-    label { display: block; margin-top: 10px; }
-    input[type="number"] { width: 140px; }
-    #result { margin-top: 12px; white-space: pre-wrap; font-family: monospace; }
-    .inline { display: inline-block; margin-right: 12px; vertical-align: middle; }
-    button { margin-top: 12px; padding: 8px 12px; }
-    .hint { color: #555; font-size: 0.9em; margin-top: 6px; }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Drag Calculator (Pyodide)</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.1/full/pyodide.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 20px; max-width: 720px; }
+    label { display: block; margin-top: 10px; }
+    input[type="number"] { width: 140px; }
+    #result { margin-top: 12px; white-space: pre-wrap; font-family: monospace; }
+    .inline { display: inline-block; margin-right: 12px; vertical-align: middle; }
+    button { margin-top: 12px; padding: 8px 12px; }
+    .hint { color: #555; font-size: 0.9em; margin-top: 6px; }
+  </style>
 </head>
 <body>
-  <h3>Drag Calculator</h3>
+  <h3>Drag Calculator</h3>
 
-  <div>
-    <label class="inline">Fluid density rho (kg/m³):
-      <input id="rho" type="number" step="any" value="1.225" />
-    </label>
+  <div>
+    <label class="inline">Fluid density rho (kg/m³):
+      <input id="rho" type="number" step="any" value="1.225" />
+    </label>
 
-    <label class="inline">Velocity V (m/s):
-      <input id="V" type="number" step="any" value="20" />
-    </label>
+    <label class="inline">Velocity V (m/s):
+      <input id="V" type="number" step="any" value="20" />
+    </label>
 
-    <label class="inline">Drag coefficient Cd:
-      <input id="Cd" type="number" step="any" value="0.45" />
-    </label>
+    <label class="inline">Drag coefficient Cd:
+      <input id="Cd" type="number" step="any" value="0.45" />
+    </label>
 
-    <label class="inline">Reference area A (m²):
-      <input id="A" type="number" step="any" value="0.3" />
-    </label>
-  </div>
+    <label class="inline">Reference area A (m²):
+      <input id="A" type="number" step="any" value="0.3" />
+    </label>
+  </div>
 
-  <div>
-    <button id="calc">Calculate Drag</button>
-    <button id="calc_alt">Calculate with alt. formula</button>
-  </div>
+  <div>
+    <button id="calc">Calculate Drag</button>
+    <button id="calc_alt">Calculate with alt. formula</button>
+  </div>
 
-  <div id="status" class="hint">Initializing Pyodide...</div>
-  <div id="result"></div>
+  <div id="status" class="hint">Initializing Pyodide...</div>
+  <div id="result"></div>
 
-  <script>
-    // Load Pyodide and the external Python module drag_calc.py (same folder)
-    let pyodideReady = (async () => {
-      const pyodide = await loadPyodide();
-      // fetch the python module text and run it to register functions
-      const resp = await fetch('drag_calc.py');
-      if (!resp.ok) throw new Error('Failed to load drag_calc.py');
-      const pySource = await resp.text();
-      pyodide.runPython(pySource);
-      return pyodide;
-    })();
+  <script>
+    // Load Pyodide and the external Python module drag_calc.py (same folder)
+    let pyodideReady = (async () => {
+      const pyodide = await loadPyodide();
+      // fetch the python module text and run it to register functions
+      const resp = await fetch('drag_calc.py');
+      if (!resp.ok) throw new Error('Failed to load drag_calc.py');
+      const pySource = await resp.text();
+      pyodide.runPython(pySource);
+      return pyodide;
+    })();
 
-    const status = document.getElementById('status');
-    pyodideReady.then(() => { status.textContent = 'Pyodide ready.'; })
-                .catch(err => { status.textContent = 'Pyodide load error: ' + err; });
+    const status = document.getElementById('status');
+    pyodideReady.then(() => { status.textContent = 'Pyodide ready.'; })
+                .catch(err => { status.textContent = 'Pyodide load error: ' + err; });
 
-    function readInputs() {
-      return {
-        rho: parseFloat(document.getElementById('rho').value),
-        V: parseFloat(document.getElementById('V').value),
-        Cd: parseFloat(document.getElementById('Cd').value),
-        A: parseFloat(document.getElementById('A').value)
-      };
-    }
+    function readInputs() {
+      return {
+        rho: parseFloat(document.getElementById('rho').value),
+        V: parseFloat(document.getElementById('V').value),
+        Cd: parseFloat(document.getElementById('Cd').value),
+        A: parseFloat(document.getElementById('A').value)
+      };
+    }
 
-    document.getElementById('calc').addEventListener('click', async () => {
-      const pyodide = await pyodideReady;
-      const inputs = readInputs();
-      document.getElementById('result').textContent = 'Calculating...';
-      try {
-        // All calculations happen in Python: call compute_drag(rho, V, Cd, A)
-        // Use a short Python snippet that calls the function and returns a dict
-        const code = `
+    document.getElementById('calc').addEventListener('click', async () => {
+      const pyodide = await pyodideReady;
+      const inputs = readInputs();
+      document.getElementById('result').textContent = 'Calculating...';
+      try {
+        // All calculations happen in Python: call compute_drag(rho, V, Cd, A)
+        const code = `
 result = compute_drag(${inputs.rho}, ${inputs.V}, ${inputs.Cd}, ${inputs.A})
 result
 `;
-        const res = pyodide.runPython(code);
-        // res is a JS proxy to the Python dict; access fields directly
-        document.getElementById('result').textContent =
-`Drag (N): ${res['drag']:.6f}
-Dynamic pressure q (Pa): ${res['q']:.6f}
+        const res = pyodide.runPython(code);
+        // FIX: Using .toFixed(6) for JavaScript formatting instead of Python f-string syntax (:.6f)
+        document.getElementById('result').textContent =
+`Drag (N): ${res['drag'].toFixed(6)}
+Dynamic pressure q (Pa): ${res['q'].toFixed(6)}
 Inputs: rho=${res['rho']}, V=${res['V']}, Cd=${res['Cd']}, A=${res['A']}`;
-      } catch (err) {
-        document.getElementById('result').textContent = 'Error: ' + err;
-      }
-    });
+      } catch (err) {
+        document.getElementById('result').textContent = 'Error: ' + err;
+      }
+    });
 
-    document.getElementById('calc_alt').addEventListener('click', async () => {
-      const pyodide = await pyodideReady;
-      const inputs = readInputs();
-      document.getElementById('result').textContent = 'Calculating (alt)...';
-      try {
-        // Demonstrate calling an alternate Python function which performs the same
-        const code = `
+    document.getElementById('calc_alt').addEventListener('click', async () => {
+      const pyodide = await pyodideReady;
+      const inputs = readInputs();
+      document.getElementById('result').textContent = 'Calculating (alt)...';
+      try {
+        // Demonstrate calling an alternate Python function which performs the same
+        const code = `
 result = compute_drag_alt(${inputs.rho}, ${inputs.V}, ${inputs.Cd}, ${inputs.A})
 result
 `;
-        const res = pyodide.runPython(code);
-        document.getElementById('result').textContent =
-`Drag (alt, N): ${res['drag']:.6f}
-q (Pa): ${res['q']:.6f}
+        const res = pyodide.runPython(code);
+        // FIX: Using .toFixed(6) for JavaScript formatting instead of Python f-string syntax (:.6f)
+        document.getElementById('result').textContent =
+`Drag (alt, N): ${res['drag'].toFixed(6)}
+q (Pa): ${res['q'].toFixed(6)}
 Inputs: rho=${res['rho']}, V=${res['V']}, Cd=${res['Cd']}, A=${res['A']}`;
-      } catch (err) {
-        document.getElementById('result').textContent = 'Error: ' + err;
-      }
-    });
-  </script>
+      } catch (err) {
+        document.getElementById('result').textContent = 'Error: ' + err;
+      }
+    });
+  </script>
 </body>
 </html>
