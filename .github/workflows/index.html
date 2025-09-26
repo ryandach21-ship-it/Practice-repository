@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Parasitic Drag Calculator (Pyodide)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 18px; }
+    label { display:block; margin:8px 0 4px; }
+    input[type="number"] { width:120px; margin-right:8px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    #canvas-wrap { max-width:800px; margin-top:16px; }
+    pre { background:#f6f6f6; padding:8px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h3>Parasitic Drag Calculator (Pyodide + Chart.js)</h3>
+
+  <div>
+    <div class="row">
+      <div>
+        <label><strong>Air density ρ (kg/m³)</strong></label>
+        <input id="rho" type="number" step="0.001" value="1.225">
+      </div>
+      <div>
+        <label><strong>Reference area S (m²)</strong></label>
+        <input id="area" type="number" step="0.01" value="1.5">
+      </div>
+      <div>
+        <label><strong>Drag coefficient C_D</strong></label>
+        <input id="cd" type="number" step="0.001" value="0.03">
+      </div>
+      <div>
+        <label><strong>Vmin (m/s)</strong></label>
+        <input id="vmin" type="number" step="0.1" value="10">
+      </div>
+      <div>
+        <label><strong>Vmax (m/s)</strong></label>
+        <input id="vmax" type="number" step="0.1" value="120">
+      </div>
+      <div>
+        <label><strong>Points</strong></label>
+        <input id="npts" type="number" step="1" value="50" min="3" max="500">
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <button id="calcBtn">Calculate & Plot</button>
+      <button id="resetBtn">Reset Defaults</button>
+    </div>
+
+    <div id="status" style="margin-top:10px;"><em>Loading Pyodide…</em></div>
+
+    <div id="canvas-wrap">
+      <canvas id="dragChart" width="800" height="400"></canvas>
+    </div>
+
+    <h4>Last result</h4>
+    <pre id="result"></pre>
+  </div>
+
+  <script>
+    // Load Pyodide and then fetch the Python module
+    let pyodideReady = loadPyodide();
+    let chart = null;
+
+    async function fetchAndLoadPythonModule(name) {
+      const pyodide = await pyodideReady;
+      const resp = await fetch(name);
+      if (!resp.ok) throw new Error("Failed to fetch " + name);
+      const code = await resp.text();
+      await pyodide.runPythonAsync(code);
+    }
+
+    async function ensureModule() {
+      const status = document.getElementById("status");
+      status.textContent = "Loading Pyodide and Python module...";
+      try {
+        await pyodideReady;
+        await fetchAndLoadPythonModule("drag_calc.py");
+        status.textContent = "Pyodide ready. Python module loaded.";
+      } catch (err) {
+        status.textContent = "Error loading Pyodide or module: " + err;
+        throw err;
+      }
+    }
+
+    function readInputs() {
+      return {
+        rho: parseFloat(document.getElementById("rho").value),
+        area: parseFloat(document.getElementById("area").value),
+        cd: parseFloat(document.getElementById("cd").value),
+        vmin: parseFloat(document.getElementById("vmin").value),
+        vmax: parseFloat(document.getElementById("vmax").value),
+        npts: parseInt(document.getElementById("npts").value, 10)
+      };
+    }
+
+    function plotData(velocities, drags) {
+      const ctx = document.getElementById("dragChart").getContext("2d");
+      const labels = velocities.map(v => v.toFixed(1));
+      const data = {
+        labels,
+        datasets: [{
+          label: "Parasitic Drag (N)",
+          data: drags,
+          borderColor: "rgba(12,99,255,0.9)",
+          backgroundColor: "rgba(12,99,255,0.15)",
+          fill: true,
+          tension: 0.15,
+          pointRadius: 2
+        }]
+      };
+      const cfg = {
+        type: "line",
+        data,
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: "Velocity (m/s)" } },
+            y: { title: { display: true, text: "Drag (N)" }, beginAtZero: true }
+          },
+          plugins: { legend: { display: true } }
+        }
+      };
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, cfg);
+    }
+
+    async function calculateAndPlot() {
+      const status = document.getElementById("status");
+      status.textContent = "Running calculation in Python…";
+      const pyodide = await pyodideReady;
+      const inputs = readInputs();
+
+      // Basic input validation
+      if (!(inputs.vmax > inputs.vmin && inputs.npts >= 3)) {
+        status.textContent = "Invalid inputs: ensure Vmax > Vmin and points >= 3.";
+        return;
+      }
+
+      // Pass values into Python globals
+      pyodide.globals.set("rho", inputs.rho);
+      pyodide.globals.set("area", inputs.area);
+      pyodide.globals.set("cd", inputs.cd);
+      pyodide.globals.set("vmin", inputs.vmin);
+      pyodide.globals.set("vmax", inputs.vmax);
+      pyodide.globals.set("npts", inputs.npts);
+
+      // Call the Python helper that returns two lists: velocities and drags
+      try {
+        const result = await pyodide.runPythonAsync(`
+velocities, drags = velocity_sweep(rho, area, cd, vmin, vmax, npts)
+# Convert to plain Python lists (if they are numpy arrays)
+velocities = [float(v) for v in velocities]
+drags = [float(d) for d in drags]
+(velocities, drags)
+`);
+        // result is a Python tuple proxied to JS; convert to native arrays
+        const velocities = result[0].toJs ? result[0].toJs() : result[0];
+        const drags = result[1].toJs ? result[1].toJs() : result[1];
+
+        plotData(velocities, drags);
+
+        document.getElementById("result").textContent =
+          `Sample: V = ${velocities[0].toFixed(2)} m/s → ${velocities[velocities.length-1].toFixed(2)} m/s\n` +
+          `Drag at mid V (${velocities[Math.floor(velocities.length/2)].toFixed(2)} m/s): ${drags[Math.floor(drags.length/2)].toFixed(2)} N`;
+
+        status.textContent = "Calculation complete.";
+      } catch (err) {
+        status.textContent = "Python error: " + err;
+        console.error(err);
+      } finally {
+        // cleanup Python globals to avoid stale state
+        try { pyodide.globals.del("rho"); pyodide.globals.del("area"); pyodide.globals.del("cd"); } catch {}
+      }
+    }
+
+    document.getElementById("calcBtn").addEventListener("click", async () => {
+      await ensureModule();
+      await calculateAndPlot();
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      document.getElementById("rho").value = "1.225";
+      document.getElementById("area").value = "1.5";
+      document.getElementById("cd").value = "0.03";
+      document.getElementById("vmin").value = "10";
+      document.getElementById("vmax").value = "120";
+      document.getElementById("npts").value = "50";
+    });
+
+    // Auto-load module on page open
+    ensureModule().catch(err => {
+      document.getElementById("status").textContent = "Failed to initialize: " + err;
+    });
+  </script>
+</body>
+</html>
