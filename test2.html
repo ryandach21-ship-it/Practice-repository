@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -95,43 +96,64 @@
       try {
         const ab = await fetchArrayBuffer(rawUrl);
         const bytes = new Uint8Array(ab);
+
+        // Set globals for Pyodide
         pyodide.globals.set('wb_bytes', pyodide.toPy(bytes));
         pyodide.globals.set('b2_val', b2Value);
 
+        // Fixed Python: convert memoryview/bytes-like to bytes, safely convert b2_val
         const pycode = `
 import io
 from openpyxl import load_workbook
 
-bytes_in = bytes(wb_bytes.to_py())
-b2_input = b2_val.to_py()
+# Convert incoming bytes-like (memoryview or buffer) to actual bytes
+try:
+    bytes_in = bytes(wb_bytes)
+except Exception:
+    # fallback: if wb_bytes is a PyProxy with buffer interface
+    bytes_in = bytes(wb_bytes.to_py())
+
+# Safely convert b2_val to a native Python object if it's a PyProxy
+try:
+    b2_input = b2_val.to_py()
+except Exception:
+    b2_input = b2_val
 
 stream = io.BytesIO(bytes_in)
 wb = load_workbook(stream, data_only=False)
 ws = wb.active
 
+# Write value into B2
 ws['B2'] = b2_input
 
+# Read C2 (cached value if formula)
 try:
     c2_val = ws['C2'].value
 except Exception as e:
     c2_val = f"READ_ERROR: {e}"
 
+# Save modified workbook to bytes
 out_stream = io.BytesIO()
 wb.save(out_stream)
 out_bytes = out_stream.getvalue()
+
 c2_val, out_bytes
 `;
+
         log('Running Python: writing B2 and extracting C2 (cached value)...');
         const result = await pyodide.runPythonAsync(pycode);
+
         const c2Val = result.get(0);
         const outBytes = result.get(1);
+
+        // Convert returned Python bytes to JS Uint8Array
         const edited = pyodide.toJs(outBytes);
         lastEditedBlob = new Blob([edited], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
         downloadBtn.disabled = false;
         resultEl.textContent = String(c2Val);
         log('Success. C2 read (cached): ' + String(c2Val));
       } catch (err) {
-        // Improve error messaging for common causes
         const msg = String(err);
         if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
           log('Network error fetching the file. Common causes:');
