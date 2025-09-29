@@ -3,22 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pyodide Excel editor</title>
+  <title>test2 — Pyodide Excel editor</title>
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; padding: 24px; max-width: 720px; margin: auto; }
-    label, input, button, textarea { display:block; margin-top:8px; width:100%; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; padding: 24px; max-width: 820px; margin: auto; }
+    label, input, button, pre { display:block; margin-top:8px; width:100%; }
     input[type="text"] { padding:8px; font-size:16px; }
     button { padding:10px; font-size:16px; margin-top:12px; }
-    pre { background:#f6f8fa; padding:12px; overflow:auto; }
+    pre { background:#f6f8fa; padding:12px; overflow:auto; min-height:40px; }
     .row { display:flex; gap:8px; }
     .row > * { flex:1; }
+    .muted { color:#666; font-size:0.9em; }
   </style>
 </head>
 <body>
-  <h3>Pyodide Excel editor</h3>
+  <h3>test2 — Pyodide Excel editor</h3>
 
-  <label for="rawUrl">Raw GitHub URL for Pyodide_test.xlsx (raw.githubusercontent.com/.../Pyodide_test.xlsx)</label>
-  <input id="rawUrl" type="text" placeholder="https://raw.githubusercontent.com/username/repo/branch/path/Pyodide_test.xlsx" />
+  <label for="rawUrl">Raw GitHub URL for Pyodide_test.xlsx</label>
+  <input id="rawUrl" type="text"
+         value="https://raw.githubusercontent.com/ryandach21-ship-it/Practice-repository/main/Pyodide_test.xlsx"
+         placeholder="https://raw.githubusercontent.com/username/repo/branch/path/Pyodide_test.xlsx" />
+
+  <div class="muted">Use the raw.githubusercontent.com URL. The page cannot fetch the GitHub HTML file URL.</div>
 
   <label for="b2">Value to write into B2</label>
   <input id="b2" type="text" placeholder="Enter value for B2" />
@@ -35,7 +40,6 @@
   <pre id="log">Waiting to load Pyodide...</pre>
 
   <script type="module">
-    // Minimal, focused script for Pyodide + openpyxl
     const logEl = document.getElementById('log');
     const resultEl = document.getElementById('result');
     const runBtn = document.getElementById('runBtn');
@@ -44,8 +48,8 @@
     const b2Input = document.getElementById('b2');
 
     function log(...parts) { logEl.textContent += parts.join(' ') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+    function clearLog() { logEl.textContent = ''; }
 
-    // Load Pyodide
     let pyodide = null;
     async function loadPyodideAndPackages() {
       log('Loading Pyodide...');
@@ -54,53 +58,48 @@
       await pyodide.loadPackage('micropip');
       const micropip = pyodide.pyimport('micropip');
       await micropip.install('openpyxl');
-      log('openpyxl installed.');
+      log('openpyxl installed. Ready.');
       micropip.destroy && micropip.destroy();
     }
 
-    // Dynamically add pyodide script tag and initialize
     (async () => {
       const s = document.createElement('script');
       s.src = "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
       s.onload = async () => {
         try {
           await loadPyodideAndPackages();
-          log('Ready.');
         } catch (err) {
-          log('Error loading packages:', err);
+          log('Error loading Pyodide or packages:', String(err));
         }
       };
       s.onerror = (e) => log('Failed to load Pyodide script', e);
       document.head.appendChild(s);
     })();
 
-    // Helper: fetch remote file as ArrayBuffer
     async function fetchArrayBuffer(url) {
-      const resp = await fetch(url);
+      const resp = await fetch(url, { mode: 'cors' });
       if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} ${resp.statusText}`);
       return await resp.arrayBuffer();
     }
 
-    // Main action: fetch xlsx, edit B2, read C2, prepare download blob
     let lastEditedBlob = null;
 
     runBtn.addEventListener('click', async () => {
+      clearLog();
       resultEl.textContent = '';
-      logEl.textContent = '';
-      if (!pyodide) { log('Pyodide not ready yet.'); return; }
+      if (!pyodide) { log('Pyodide not ready yet. Wait a few seconds and try again.'); return; }
       const rawUrl = rawUrlInput.value.trim();
       const b2Value = b2Input.value;
-      if (!rawUrl) { log('Enter the raw GitHub URL.'); return; }
+      if (!rawUrl) { log('Enter the raw GitHub URL (raw.githubusercontent.com).'); return; }
       log('Fetching workbook from', rawUrl);
       try {
         const ab = await fetchArrayBuffer(rawUrl);
         const bytes = new Uint8Array(ab);
-        // Run Python to read/write workbook using openpyxl
         pyodide.globals.set('wb_bytes', pyodide.toPy(bytes));
         pyodide.globals.set('b2_val', b2Value);
 
         const pycode = `
-import io, sys
+import io
 from openpyxl import load_workbook
 
 bytes_in = bytes(wb_bytes.to_py())
@@ -110,41 +109,41 @@ stream = io.BytesIO(bytes_in)
 wb = load_workbook(stream, data_only=False)
 ws = wb.active
 
-# Write to B2
 ws['B2'] = b2_input
 
-# Read C2 (cached value stored in file)
-c2_val = None
 try:
     c2_val = ws['C2'].value
 except Exception as e:
     c2_val = f"READ_ERROR: {e}"
 
-# Save modified workbook into bytes
 out_stream = io.BytesIO()
 wb.save(out_stream)
 out_bytes = out_stream.getvalue()
-# Expose results back to JS
 c2_val, out_bytes
 `;
         log('Running Python: writing B2 and extracting C2 (cached value)...');
         const result = await pyodide.runPythonAsync(pycode);
-        // result is a Python tuple (c2_val, out_bytes)
         const c2Val = result.get(0);
         const outBytes = result.get(1);
-        // Convert outBytes (pybytes) to JS Uint8Array
         const edited = pyodide.toJs(outBytes);
         lastEditedBlob = new Blob([edited], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         downloadBtn.disabled = false;
         resultEl.textContent = String(c2Val);
         log('Success. C2 read (cached): ' + String(c2Val));
-        log('Prepared edited workbook for download.');
-        // cleanup temporary globals
-        pyodide.globals.del('wb_bytes');
-        pyodide.globals.del('b2_val');
       } catch (err) {
-        log('Error:', err);
+        // Improve error messaging for common causes
+        const msg = String(err);
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          log('Network error fetching the file. Common causes:');
+          log('- You used the GitHub file page URL instead of the raw URL.');
+          log('- The repository is private (requires authentication).');
+          log('- CORS or network connectivity problem.');
+          log('Make sure the URL is the raw.githubusercontent.com path and the repo is public.');
+        }
+        log('Error:', msg);
         resultEl.textContent = 'ERROR';
+      } finally {
+        try { pyodide.globals.del('wb_bytes'); pyodide.globals.del('b2_val'); } catch(e){}
       }
     });
 
