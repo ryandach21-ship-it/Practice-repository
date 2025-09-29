@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -110,7 +109,6 @@ from openpyxl import load_workbook
 try:
     bytes_in = bytes(wb_bytes)
 except Exception:
-    # fallback: if wb_bytes is a PyProxy with buffer interface
     bytes_in = bytes(wb_bytes.to_py())
 
 # Safely convert b2_val to a native Python object if it's a PyProxy
@@ -146,8 +144,9 @@ c2_val, out_bytes
         const c2Val = result.get(0);
         const outBytes = result.get(1);
 
-        // Convert returned Python bytes to JS Uint8Array
-        const edited = pyodide.toJs(outBytes);
+        // Convert returned Python bytes PyProxy to native JS Uint8Array using to_py()
+        const edited = (typeof outBytes.to_py === 'function') ? outBytes.to_py() : outBytes;
+
         lastEditedBlob = new Blob([edited], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
         downloadBtn.disabled = false;
