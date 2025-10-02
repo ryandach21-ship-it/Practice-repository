@@ -1,365 +1,426 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Wing 3D (Pyodide + three.js)</title>
-
-  <!-- Pyodide -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.1/full/pyodide.js"></script>
-
-  <!-- three.js and STLExporter -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/exporters/STLExporter.js"></script>
-
+  <title>NACA Wing Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; }
-    #ui { width: 320px; padding: 12px; box-sizing: border-box; background:#f5f5f5; overflow:auto; border-right:1px solid #ddd; }
-    #viewport { flex: 1; display:flex; flex-direction:column; }
-    #canvas-container { flex: 1; }
-    label { display:block; margin-top:8px; font-size:13px; }
-    input[type="text"], input[type="number"], select { width:100%; padding:6px; box-sizing:border-box; margin-top:4px; }
-    button { margin-top:10px; padding:8px 10px; width:100%; }
-    small { color:#666; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background: #0f1320; color: #e9eefb; }
+    header { padding: 12px 16px; border-bottom: 1px solid #20263a; }
+    h1 { font-size: 18px; margin: 0; }
+    main { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 58px); }
+    #panel { padding: 12px; border-right: 1px solid #20263a; overflow: auto; }
+    #renderer { position: relative; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    fieldset { border: 1px solid #20263a; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    legend { padding: 0 6px; color: #9fb3ff; }
+    label { display: block; font-size: 12px; margin-top: 8px; color: #b9c2e8; }
+    input, select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #394264; background: #12172b; color: #e9eefb; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    button { width: 100%; padding: 10px; margin-top: 12px; border: 1px solid #394264; border-radius: 6px;
+      background: #1b213a; color: #dfe7ff; cursor: pointer; }
+    button:hover { background: #253057; }
+    small { color: #9aa7d6; }
+    .note { font-size: 12px; color: #9aa7d6; margin-top: 6px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    a { color: #9fb3ff; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div id="ui">
-    <h3>Wing Generator (Pyodide)</h3>
+  <header>
+    <h1>NACA Wing Generator — 4-digit profiles, taper/twist/sweep/dihedral, STL export</h1>
+  </header>
+  <main>
+    <div id="panel">
+      <fieldset>
+        <legend>Airfoil</legend>
+        <label>NACA 4-digit code (e.g., 2412)
+          <input id="naca" class="mono" type="text" value="2412" maxlength="4" />
+        </label>
+        <label>Points per surface (upper/lower, total ~2×)
+          <input id="pts" type="number" min="50" max="800" step="10" value="200" />
+        </label>
+        <div class="note">Closed TE uses thickness coefficient −0.1015; coordinates are cosine-spaced.</div>
+      </fieldset>
 
-    <label>NACA 4-digit
-      <input id="naca" type="text" value="2412" />
-    </label>
+      <fieldset>
+        <legend>Planform</legend>
+        <div class="row">
+          <div>
+            <label>Span (m)
+              <input id="span" type="number" min="0.05" step="0.01" value="1.0" />
+            </label>
+          </div>
+          <div>
+            <label>Span segments
+              <input id="spanSegs" type="number" min="2" max="200" step="1" value="40" />
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Root chord (m)
+              <input id="cRoot" type="number" min="0.01" step="0.001" value="0.25" />
+            </label>
+          </div>
+          <div>
+            <label>Tip chord (m)
+              <input id="cTip" type="number" min="0.01" step="0.001" value="0.10" />
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Tip twist (deg, nose-down negative)
+              <input id="twistTip" type="number" step="0.1" value="-3.0" />
+            </label>
+          </div>
+          <div>
+            <label>Sweep (m at tip, LE positive)
+              <input id="sweep" type="number" step="0.001" value="0.10" />
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Dihedral (deg)
+              <input id="dihedral" type="number" step="0.1" value="5.0" />
+            </label>
+          </div>
+          <div>
+            <label>Symmetry
+              <select id="sym">
+                <option value="right">Right wing</option>
+                <option value="left">Left wing</option>
+                <option value="both" selected>Both (full span)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="note">Sweep shifts the leading edge in +X; dihedral rotates around the X-axis; twist rotates around each station’s Y-axis.</div>
+      </fieldset>
 
-    <label>Span (m)
-      <input id="span" type="number" step="0.1" value="2.0" />
-    </label>
+      <fieldset>
+        <legend>Output</legend>
+        <label>Surface color
+          <input id="color" type="color" value="#5fa8ff" />
+        </label>
+        <button id="build">Build wing</button>
+        <button id="export">Export STL</button>
+        <div class="note">STL is exported in ASCII for readability.</div>
+      </fieldset>
 
-    <label>Root chord (m)
-      <input id="chord_root" type="number" step="0.01" value="0.5" />
-    </label>
+      <div class="note">Tip: Increase “Points per surface” and “Span segments” for smoother meshes before export.</div>
+    </div>
 
-    <label>Tip chord (m)
-      <input id="chord_tip" type="number" step="0.01" value="0.3" />
-    </label>
+    <div id="renderer">
+      <canvas id="canvas"></canvas>
+    </div>
+  </main>
 
-    <label>Span stations (n_span)
-      <input id="n_span" type="number" step="1" value="21" />
-      <small>Reduce for faster performance</small>
-    </label>
+  <!-- Three.js modules -->
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+    import { STLExporter } from 'https://unpkg.com/three@0.160.0/examples/jsm/exporters/STLExporter.js';
 
-    <label>Points per surface (n_chord)
-      <input id="n_chord" type="number" step="1" value="64" />
-      <small>Per upper or lower surface; total chord points = n_chord*2</small>
-    </label>
+    // Scene setup
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f1320);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 200);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
 
-    <label>Root twist (deg)
-      <input id="twist_root" type="number" step="0.1" value="0.0" />
-    </label>
-
-    <label>Tip twist (deg)
-      <input id="twist_tip" type="number" step="0.1" value="0.0" />
-    </label>
-
-    <label>Sweep LE (deg)
-      <input id="sweep" type="number" step="0.1" value="0.0" />
-    </label>
-
-    <label><input id="mirror" type="checkbox" checked /> Mirror wing (full wing)</label>
-
-    <button id="gen">Generate wing and render</button>
-    <button id="download_stl">Download STL</button>
-
-    <hr />
-    <div id="status">Loading Pyodide...</div>
-  </div>
-
-  <div id="viewport">
-    <div id="canvas-container"></div>
-  </div>
-
-<script type="text/javascript">
-  // three.js scene setup
-  let scene, camera, renderer, controls;
-  let wingMesh = null;
-
-  function initThree() {
-    const container = document.getElementById('canvas-container');
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setClearColor(0xffffff, 1);
-    container.innerHTML = ''; // clear
-    container.appendChild(renderer.domElement);
-
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 1000);
-    camera.position.set(1.0, 1.0, 1.0);
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.target.set(0.25, 0.0, 0.0);
-    controls.update();
-
-    // lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x334, 0.9);
     scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5, 5, 2);
-    scene.add(dir);
+    const key = new THREE.DirectionalLight(0xffffff, 0.7);
+    key.position.set(2, 1, 3);
+    scene.add(key);
 
-    window.addEventListener('resize', onWindowResize);
-    animate();
-  }
+    const grid = new THREE.GridHelper(10, 40, 0x3a4a7a, 0x222a44);
+    grid.rotation.x = Math.PI / 2; // XY grid
+    scene.add(grid);
 
-  function onWindowResize() {
-    const container = document.getElementById('canvas-container');
-    if (!renderer) return;
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-  }
+    const axes = new THREE.AxesHelper(0.5);
+    scene.add(axes);
 
-  function animate() {
-    requestAnimationFrame(animate);
-    if (controls) controls.update();
-    if (renderer) renderer.render(scene, camera);
-  }
+    // Resize
+    function onResize() {
+      const panelW = document.getElementById('panel').offsetWidth;
+      const w = window.innerWidth - panelW;
+      const h = window.innerHeight - 58;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', onResize);
+    onResize();
 
-  function buildThreeMesh(vertices, faces, color=0x1f77b4) {
-    // vertices: flat array [x0,y0,z0, x1,y1,z1, ...]
-    // faces: flat array of indices [a0,b0,c0, a1,b1,c1, ...]
-    const geom = new THREE.BufferGeometry();
-    const verts = new Float32Array(vertices);
-    geom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    geom.setIndex(faces);
-    geom.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: color, metalness:0.2, roughness:0.6, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geom, mat);
-    return mesh;
-  }
+    // Camera default
+    camera.position.set(0.6, 0.3, 0.6);
+    controls.target.set(0.2, 0.0, 0.0);
 
-  // Download STL using three.js exporter
-  function downloadSTL() {
-    if (!wingMesh) { alert('Generate the wing first'); return; }
-    const exporter = new THREE.STLExporter();
-    const result = exporter.parse(wingMesh, { binary: true });
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    const filename = 'wing_model.stl';
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  // Initialize three.js canvas
-  initThree();
-
-  // Pyodide setup and Python mesh builder
-  let pyodideReady = null;
-  async function loadPyodideAndPackages() {
-    document.getElementById('status').innerText = 'Loading Pyodide... (this may take a few seconds)';
-    const pyodide = await loadPyodide();
-    document.getElementById('status').innerText = 'Pyodide ready. Loading numpy...';
-    await pyodide.loadPackage('numpy');
-    document.getElementById('status').innerText = 'numpy loaded. Ready.';
-    return pyodide;
-  }
-
-  pyodideReady = loadPyodideAndPackages();
-
-  // Python code to generate wing (NACA 4-digit analytic)
-  const pythonMeshBuilder = `
-import numpy as np
-def naca4_coords(code: str, n_points=100):
-    code = code.strip()
-    if len(code) != 4 or not code.isdigit():
-        raise ValueError("NACA code must be 4 digits")
-    m = int(code[0]) / 100.0
-    p = int(code[1]) / 10.0
-    t = int(code[2:]) / 100.0
-    beta = np.linspace(0.0, np.pi, n_points)
-    x = 0.5 * (1 - np.cos(beta))
-    yt = 5 * t * (0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
-    yc = np.zeros_like(x)
-    dyc_dx = np.zeros_like(x)
-    if m>0 and p>0:
-        for i, xi in enumerate(x):
-            if xi < p:
-                yc[i] = (m / (p**2)) * (2*p*xi - xi**2)
-                dyc_dx[i] = (2*m / (p**2)) * (p - xi)
-            else:
-                yc[i] = (m / ((1-p)**2)) * ((1 - 2*p) + 2*p*xi - xi**2)
-                dyc_dx[i] = (2*m / ((1-p)**2)) * (p - xi)
-    theta = np.arctan(dyc_dx)
-    xu = x - yt * np.sin(theta)
-    yu = yc + yt * np.cos(theta)
-    xl = x + yt * np.sin(theta)
-    yl = yc - yt * np.cos(theta)
-    return xu, yu, xl, yl
-
-def build_wing_mesh(naca_code='2412', span=2.0, chord_root=0.5, chord_tip=0.3, n_span=21, n_chord=64, twist_root_deg=0.0, twist_tip_deg=0.0, sweep_le_deg=0.0, mirror=True):
-    # build airfoil coordinates normalized to chord=1
-    xu, yu, xl, yl = naca4_coords(naca_code, n_chord)
-    x_chord = np.concatenate([xu, xl[::-1]])
-    y_chord = np.concatenate([yu, yl[::-1]])
-    # span stations
-    if mirror:
-        half_span = span / 2.0
-        span_stations = np.linspace(0.0, half_span, n_span)
-    else:
-        span_stations = np.linspace(0.0, span, n_span)
-    chords = np.linspace(chord_root, chord_tip, len(span_stations))
-    twists = np.deg2rad(np.linspace(twist_root_deg, twist_tip_deg, len(span_stations)))
-    sweep_le = np.deg2rad(sweep_le_deg)
-    le_offsets = np.tan(sweep_le) * span_stations
-    verts = []
-    for ys, c, twist, le_off in zip(span_stations, chords, twists, le_offsets):
-        xs_local = x_chord * c + le_off
-        zs_local = y_chord * c
-        ys_local = np.full_like(xs_local, ys)
-        # rotate around leading edge (pitch) with twist
-        x_rel = xs_local - le_off
-        z_rel = zs_local
-        cos_t = np.cos(twist)
-        sin_t = np.sin(twist)
-        x_rot = le_off + cos_t * x_rel - sin_t * z_rel
-        z_rot = sin_t * x_rel + cos_t * z_rel
-        for xg, yg, zg in zip(x_rot, ys_local, z_rot):
-            verts.append((float(xg), float(yg), float(zg)))
-    verts = np.array(verts, dtype=float)
-    n_c = len(x_chord)
-    faces = []
-    n_span_st = len(span_stations)
-    for j in range(n_span_st - 1):
-        for i in range(n_c - 1):
-            v00 = j * n_c + i
-            v01 = j * n_c + i + 1
-            v10 = (j + 1) * n_c + i
-            v11 = (j + 1) * n_c + i + 1
-            faces.append((v00, v10, v11))
-            faces.append((v00, v11, v01))
-    if mirror:
-        verts_mirror = verts.copy()
-        verts_mirror[:,1] *= -1.0
-        verts_full = np.vstack([verts, verts_mirror[n_c:]])
-        offset = verts.shape[0]
-        faces_full = list(faces)
-        for (a,b,c) in faces:
-            faces_full.append((a + offset - n_c, b + offset - n_c, c + offset - n_c))
-        verts = verts_full
-        faces = faces_full
-    # flatten for JS transfer
-    verts_flat = verts.reshape(-1).tolist()
-    faces_flat = [int(x) for tri in faces for x in tri]
-    return verts_flat, faces_flat
-`;
-
-  // Helper to call Python builder with current UI inputs
-  async function generateMeshFromPython() {
-    const pyodide = await pyodideReady;
-    document.getElementById('status').innerText = 'Generating mesh in Python...';
-    // ensure the Python code is loaded
-    await pyodide.runPythonAsync(pythonMeshBuilder);
-
-    // read inputs
-    const params = {
-      naca: document.getElementById('naca').value || '2412',
-      span: parseFloat(document.getElementById('span').value) || 2.0,
-      chord_root: parseFloat(document.getElementById('chord_root').value) || 0.5,
-      chord_tip: parseFloat(document.getElementById('chord_tip').value) || 0.3,
-      n_span: Math.max(2, parseInt(document.getElementById('n_span').value) || 21),
-      n_chord: Math.max(4, parseInt(document.getElementById('n_chord').value) || 64),
-      twist_root_deg: parseFloat(document.getElementById('twist_root').value) || 0.0,
-      twist_tip_deg: parseFloat(document.getElementById('twist_tip').value) || 0.0,
-      sweep_le_deg: parseFloat(document.getElementById('sweep').value) || 0.0,
-      mirror: document.getElementById('mirror').checked
+    // UI
+    const ui = {
+      naca: document.getElementById('naca'),
+      pts: document.getElementById('pts'),
+      span: document.getElementById('span'),
+      spanSegs: document.getElementById('spanSegs'),
+      cRoot: document.getElementById('cRoot'),
+      cTip: document.getElementById('cTip'),
+      twistTip: document.getElementById('twistTip'),
+      sweep: document.getElementById('sweep'),
+      dihedral: document.getElementById('dihedral'),
+      sym: document.getElementById('sym'),
+      color: document.getElementById('color'),
+      build: document.getElementById('build'),
+      export: document.getElementById('export'),
     };
 
-    // Build Python call string with safe interpolation
-    const call = `
-verts_flat, faces_flat = build_wing_mesh(
-    naca_code=${JSON.stringify(params.naca)},
-    span=${params.span},
-    chord_root=${params.chord_root},
-    chord_tip=${params.chord_tip},
-    n_span=${params.n_span},
-    n_chord=${params.n_chord},
-    twist_root_deg=${params.twist_root_deg},
-    twist_tip_deg=${params.twist_tip_deg},
-    sweep_le_deg=${params.sweep_le_deg},
-    mirror=${params.mirror}
-)
-(verts_flat, faces_flat)
-`;
-    try {
-      // execute and retrieve the tuple result
-      const res = await pyodide.runPythonAsync(call);
-      // Pyodide returns PyProxy for lists; convert to JS arrays using toJs()
-      // For this pattern, runPythonAsync returns a PyProxy that supports toJs
-      const verts_flat = res[0].toJs ? res[0].toJs() : res[0];
-      const faces_flat = res[1].toJs ? res[1].toJs() : res[1];
-      document.getElementById('status').innerText = `Mesh ready: ${verts_flat.length/3} vertices, ${faces_flat.length/3} triangles`;
-      return { verts_flat, faces_flat };
-    } catch (err) {
-      console.error(err);
-      document.getElementById('status').innerText = 'Python error: ' + err;
-      throw err;
+    let wingMesh = null;
+
+    // NACA 4-digit generator (cosine-spacing for x)
+    // m = max camber, p = location of max camber, t = thickness (all as fractions of chord)
+    function naca4Coordinates(code, nPointsPerSide = 200) {
+      if (!/^\d{4}$/.test(code)) throw new Error('NACA code must be 4 digits, e.g., 2412.');
+      const m = parseInt(code[0], 10) / 100.0;
+      const p = parseInt(code[1], 10) / 10.0;
+      const t = parseInt(code.slice(2), 10) / 100.0;
+
+      // Cosine spacing (dense near LE and TE)
+      const N = Math.max(50, nPointsPerSide|0);
+      const x = new Array(N);
+      for (let i = 0; i < N; i++) {
+        const beta = Math.PI * i / (N - 1);
+        x[i] = 0.5 * (1 - Math.cos(beta)); // 0..1
+      }
+
+      const yt = x.map(xi => {
+        return 5 * t * (0.2969 * Math.sqrt(xi)
+                      - 0.1260 * xi
+                      - 0.3516 * xi * xi
+                      + 0.2843 * xi * xi * xi
+                      - 0.1015 * xi * xi * xi * xi);
+      });
+
+      function camber(xi) {
+        if (p === 0) return { yc: 0, dy: 0 };
+        if (xi < p) {
+          const yc = (m / (p * p)) * (2 * p * xi - xi * xi);
+          const dy = (2 * m / (p * p)) * (p - xi);
+          return { yc, dy };
+        } else {
+          const yc = (m / ((1 - p) * (1 - p))) * ((1 - 2 * p) + 2 * p * xi - xi * xi);
+          const dy = (2 * m / ((1 - p) * (1 - p))) * (p - xi);
+          return { yc, dy };
+        }
+      }
+
+      const upper = [];
+      const lower = [];
+      for (let i = 0; i < N; i++) {
+        const xi = x[i];
+        const { yc, dy } = camber(xi);
+        const theta = Math.atan(dy);
+        const xu = xi - yt[i] * Math.sin(theta);
+        const yu = yc + yt[i] * Math.cos(theta);
+        const xl = xi + yt[i] * Math.sin(theta);
+        const yl = yc - yt[i] * Math.cos(theta);
+        upper.push([xu, yu]);
+        lower.push([xl, yl]);
+      }
+
+      // Build full closed loop from TE (x=1) around upper to LE (x~0) and back on lower
+      const outline = [];
+      // Upper surface from TE to LE
+      for (let i = N - 1; i >= 0; i--) outline.push([upper[i][0], upper[i][1]]);
+      // Lower surface from LE to TE
+      for (let i = 0; i < N; i++) outline.push([lower[i][0], lower[i][1]]);
+
+      return { x, upper, lower, outline }; // normalized to chord = 1
     }
-  }
 
-  // Hook UI
-  document.getElementById('gen').addEventListener('click', async () => {
-    try {
-      const { verts_flat, faces_flat } = await generateMeshFromPython();
-      // remove previous mesh
-      if (wingMesh) { scene.remove(wingMesh); wingMesh.geometry.dispose(); wingMesh.material.dispose(); wingMesh = null; }
-      const mesh = buildThreeMesh(verts_flat, faces_flat, 0x1f77b4);
-      wingMesh = mesh;
-      scene.add(mesh);
-      // auto-fit camera / center
-      fitCameraToObject(camera, controls, mesh, 1.4);
-    } catch (e) {
-      console.error(e);
+    // Build spanwise stations with linear taper, twist, sweep, and dihedral
+    function buildWingGeometry(params) {
+      const { code, ptsPerSide, span, spanSegs, cRoot, cTip, twistTipDeg, sweep, dihedralDeg, symmetry, color } = params;
+      const airfoil = naca4Coordinates(code, ptsPerSide);
+      const profile = airfoil.outline; // array of [x, y] normalized
+
+      // Choose resolution along profile
+      const M = profile.length;
+
+      // Span stations
+      const S = Math.max(2, spanSegs|0);
+      const halfSpan = span * (symmetry === 'both' ? 0.5 : 1.0);
+      const ySign = symmetry === 'left' ? -1 : 1; // right wing positive Y
+
+      // Prepare vertex buffer: stations × profile points
+      const stations = [];
+      for (let s = 0; s < S; s++) {
+        const eta = s / (S - 1); // 0 root -> 1 tip
+        const chord = cRoot + (cTip - cRoot) * eta;
+        const twist = (twistTipDeg * Math.PI / 180) * eta;
+        const dihedral = dihedralDeg * Math.PI / 180;
+        const ySpan = ySign * halfSpan * eta;
+        const xSweep = sweep * eta;
+
+        // Local transform:
+        // 1) Scale by chord (x along chord, z thickness up)
+        // 2) Rotate by twist around local Y (span) axis
+        // 3) Position: Y = span, X += sweep; rotate whole wing by dihedral around X
+        const row = [];
+        const cosTw = Math.cos(twist), sinTw = Math.sin(twist);
+        const cosDh = Math.cos(dihedral), sinDh = Math.sin(dihedral);
+
+        for (let i = 0; i < M; i++) {
+          const xLocal = profile[i][0] * chord;
+          const zLocal = profile[i][1] * chord;
+
+          // Twist rotation about local Y: (x,z) -> (x',z')
+          const xTw = xLocal * cosTw + zLocal * sinTw;
+          const zTw = -xLocal * sinTw + zLocal * cosTw;
+
+          // Position in wing coordinates before dihedral
+          let X = xTw + xSweep;
+          let Y = ySpan;
+          let Z = zTw;
+
+          // Dihedral rotation around X axis: (Y,Z) -> (Y',Z')
+          const Yd = Y * cosDh - Z * sinDh;
+          const Zd = Y * sinDh + Z * cosDh;
+
+          row.push(new THREE.Vector3(X, Yd, Zd));
+        }
+        stations.push(row);
+      }
+
+      // If symmetry both, mirror to left side
+      let allStations = stations;
+      if (symmetry === 'both') {
+        const mirror = [];
+        for (let s = S - 1; s >= 0; s--) {
+          const row = [];
+          for (let i = 0; i < M; i++) {
+            const v = stations[s][i];
+            // Mirror across Y=0 plane by negating Y
+            row.push(new THREE.Vector3(v.x, -v.y, v.z));
+          }
+          mirror.push(row);
+        }
+        allStations = stations.concat(mirror);
+      }
+
+      const SS = allStations.length;
+
+      // Build faces between consecutive stations (quad -> two triangles)
+      const vertices = [];
+      const indices = [];
+
+      for (let s = 0; s < SS; s++) {
+        for (let i = 0; i < M; i++) {
+          vertices.push(allStations[s][i].x, allStations[s][i].y, allStations[s][i].z);
+        }
+      }
+
+      function vid(s, i) { return s * M + i; }
+
+      for (let s = 0; s < SS - 1; s++) {
+        for (let i = 0; i < M - 1; i++) {
+          const a = vid(s, i);
+          const b = vid(s + 1, i);
+          const c = vid(s + 1, i + 1);
+          const d = vid(s, i + 1);
+          // Tri 1: a b d
+          indices.push(a, b, d);
+          // Tri 2: b c d
+          indices.push(b, c, d);
+        }
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geom.setIndex(indices);
+      geom.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color),
+        roughness: 0.6,
+        metalness: 0.0,
+        side: THREE.DoubleSide
+      });
+
+      const mesh = new THREE.Mesh(geom, mat);
+
+      // Center camera on new mesh
+      geom.computeBoundingSphere();
+      const bs = geom.boundingSphere;
+      if (bs) {
+        controls.target.copy(bs.center);
+        const d = bs.radius;
+        camera.position.set(bs.center.x + 1.8 * d, bs.center.y + 1.0 * d, bs.center.z + 1.8 * d);
+        camera.lookAt(bs.center);
+      }
+
+      return mesh;
     }
-  });
 
-  document.getElementById('download_stl').addEventListener('click', () => {
-    downloadSTL();
-  });
-
-  // utility to frame object
-  function fitCameraToObject( camera, controls, object, offset = 1.25 ) {
-    const boundingBox = new THREE.Box3();
-    boundingBox.setFromObject( object );
-    const center = boundingBox.getCenter(new THREE.Vector3());
-    const size = boundingBox.getSize(new THREE.Vector3());
-    const maxSize = Math.max(size.x, size.y, size.z);
-    const fitHeightDistance = maxSize / (2 * Math.atan(Math.PI * camera.fov / 360));
-    const fitWidthDistance = fitHeightDistance / camera.aspect;
-    const distance = offset * Math.max(fitHeightDistance, fitWidthDistance);
-    // move camera to center + distance
-    const dir = controls.target.clone()
-      .sub(camera.position)
-      .normalize()
-      .multiplyScalar(-1);
-    camera.position.copy(center);
-    camera.position.add(new THREE.Vector3(distance, distance, distance));
-    camera.lookAt(center);
-    controls.target.copy(center);
-    controls.update();
-  }
-
-  // initial generation once pyodide is ready
-  (async () => {
-    try {
-      await pyodideReady;
-      document.getElementById('status').innerText = 'Pyodide ready. Click Generate to build the wing.';
-      // optional: generate automatically once ready
-      // document.getElementById('gen').click();
-    } catch (err) {
-      document.getElementById('status').innerText = 'Failed to load Pyodide: ' + err;
+    function removeMesh() {
+      if (wingMesh) {
+        scene.remove(wingMesh);
+        wingMesh.geometry.dispose();
+        wingMesh.material.dispose();
+        wingMesh = null;
+      }
     }
-  })();
 
-</script>
+    ui.build.addEventListener('click', () => {
+      try {
+        removeMesh();
+        const params = {
+          code: ui.naca.value.trim(),
+          ptsPerSide: parseInt(ui.pts.value, 10),
+          span: parseFloat(ui.span.value),
+          spanSegs: parseInt(ui.spanSegs.value, 10),
+          cRoot: parseFloat(ui.cRoot.value),
+          cTip: parseFloat(ui.cTip.value),
+          twistTipDeg: parseFloat(ui.twistTip.value),
+          sweep: parseFloat(ui.sweep.value),
+          dihedralDeg: parseFloat(ui.dihedral.value),
+          symmetry: ui.sym.value,
+          color: ui.color.value
+        };
+        wingMesh = buildWingGeometry(params);
+        scene.add(wingMesh);
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    });
+
+    ui.export.addEventListener('click', () => {
+      if (!wingMesh) {
+        alert('Build the wing first.');
+        return;
+      }
+      const exporter = new STLExporter();
+      const stlString = exporter.parse(wingMesh, { binary: false });
+      const blob = new Blob([stlString], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `wing_${ui.naca.value.trim()}_${Date.now()}.stl`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    // Animate
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
 </body>
 </html>
